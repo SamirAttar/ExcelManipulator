@@ -348,3 +348,297 @@ public class RTIMultilingual {
     }
 }
 
+
+------
+test
+
+package com.excelImporter.controller;
+
+
+
+import com.excelImporter.controller.RTIMultilingualController;
+import com.excelImporter.service.RTIMultilingualService;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+import java.io.ByteArrayOutputStream;
+
+import static org.mockito.Mockito.doNothing;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@ExtendWith(MockitoExtension.class)
+class RTIMultilingualControllerTest {
+
+    private MockMvc mockMvc;
+
+    @Mock
+    private RTIMultilingualService service;
+
+    @InjectMocks
+    private RTIMultilingualController controller;
+
+    @BeforeEach
+    void setUp() {
+        mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+    }
+
+    @Test
+    void testUploadExcelEndpoint() throws Exception {
+        Workbook workbook = new XSSFWorkbook();
+        Sheet sheet = workbook.createSheet("Sheet1");
+
+        Row header = sheet.createRow(0);
+        header.createCell(0).setCellValue("id");
+        header.createCell(1).setCellValue("reqformId");
+        header.createCell(2).setCellValue("label");
+        header.createCell(3).setCellValue("langId");
+        header.createCell(4).setCellValue("help");
+
+        Row row = sheet.createRow(1);
+        row.createCell(0).setCellValue("");
+        row.createCell(1).setCellValue(100);
+        row.createCell(2).setCellValue("Label1");
+        row.createCell(3).setCellValue("EN");
+        row.createCell(4).setCellValue("Help text");
+
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        workbook.write(bos);
+        workbook.close();
+
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "test.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                bos.toByteArray()
+        );
+
+        doNothing().when(service).uploadExcel(file);
+
+        mockMvc.perform(multipart("/api/v1/rti/upload")
+                        .file(file)
+                        .header("orgoid", "ORG123")
+                        .header("associateoid", "ASSO456")
+                        .contentType(MediaType.MULTIPART_FORM_DATA))
+                .andExpect(status().isOk());
+    }
+}
+------
+
+package com.excelImporter.service;
+
+import com.excelImporter.dao.RTIMultilingualDao;
+import com.excelImporter.domain.RTIMultilingual;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockMultipartFile;
+
+import java.io.ByteArrayOutputStream;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+class RTIMultilingualServiceTest {
+
+    @Mock
+    private RTIMultilingualDao repository;
+
+    @InjectMocks
+    private RTIMultilingualService service;
+
+    @Test
+    void testUploadExcelWithInMemoryFile() throws Exception {
+        // 1️⃣ Create in-memory Excel workbook
+        Workbook workbook = new XSSFWorkbook();
+        Sheet sheet = workbook.createSheet("Sheet1");
+
+        // Header row
+        Row header = sheet.createRow(0);
+        header.createCell(0).setCellValue("id");
+        header.createCell(1).setCellValue("reqformId");
+        header.createCell(2).setCellValue("label");
+        header.createCell(3).setCellValue("langId");
+        header.createCell(4).setCellValue("help");
+
+        // Data row
+        Row row = sheet.createRow(1);
+        row.createCell(0).setCellValue(""); // id null → new record
+        row.createCell(1).setCellValue(100);
+        row.createCell(2).setCellValue("Label1");
+        row.createCell(3).setCellValue("EN");
+        row.createCell(4).setCellValue("Help text");
+
+        // Write workbook to byte array
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        workbook.write(bos);
+        workbook.close();
+
+        // 2️⃣ Wrap the byte array as MockMultipartFile
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "test.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                bos.toByteArray()
+        );
+
+        // 3️⃣ Mock repository save behavior
+        RTIMultilingual savedEntity = new RTIMultilingual();
+        savedEntity.setId(1L);
+        savedEntity.setReqformId(100L);
+        savedEntity.setLabel("Label1");
+        savedEntity.setLangId("EN");
+        savedEntity.setHelp("Help text");
+
+        when(repository.save(any(RTIMultilingual.class))).thenReturn(savedEntity);
+
+        // 4️⃣ Call service method
+        service.uploadExcel(file);
+
+        // 5️⃣ Verify that repository.save() was called at least once
+        verify(repository, atLeastOnce()).save(any(RTIMultilingual.class));
+    }
+}
+
+--------
+
+
+package com.excelImporter.dto;
+
+
+import org.junit.jupiter.api.Test;
+import static org.assertj.core.api.Assertions.assertThat;
+
+class RTIMultilingualDtoTest {
+
+    @Test
+    void testDtoSettersAndGetters() {
+        RTIMultilingualDTO dto = new RTIMultilingualDTO();
+        dto.setId(1L);
+        dto.setReqformId(100L);
+        dto.setLabel("Label1");
+        dto.setLangId("EN");
+        dto.setHelp("Help text");
+
+        assertThat(dto.getId()).isEqualTo(1L);
+        assertThat(dto.getReqformId()).isEqualTo(100L);
+        assertThat(dto.getLabel()).isEqualTo("Label1");
+        assertThat(dto.getLangId()).isEqualTo("EN");
+        assertThat(dto.getHelp()).isEqualTo("Help text");
+    }
+}
+
+
+------
+
+
+package com.excelImporter.dao;
+
+import com.excelImporter.domain.RTIMultilingual;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.Optional;
+
+import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThat;
+
+@ExtendWith(MockitoExtension.class)
+class RTIMultilingualRepositoryTest {
+
+    @Mock
+    private RTIMultilingualDao repository;
+
+    @Test
+    void testSaveEntity() {
+        RTIMultilingual entity = new RTIMultilingual();
+        entity.setId(1L);
+        entity.setReqformId(100L);
+        entity.setLabel("Label1");
+        entity.setLangId("EN");
+        entity.setHelp("Help text");
+
+        when(repository.save(entity)).thenReturn(entity);
+
+        RTIMultilingual saved = repository.save(entity);
+
+        assertThat(saved).isNotNull();
+        assertThat(saved.getId()).isEqualTo(1L);
+        assertThat(saved.getLabel()).isEqualTo("Label1");
+
+        verify(repository, times(1)).save(entity);
+    }
+
+    @Test
+    void testFindById() {
+        RTIMultilingual entity = new RTIMultilingual();
+        entity.setId(1L);
+        entity.setLabel("Label1");
+
+        when(repository.findById(1L)).thenReturn(Optional.of(entity));
+
+        Optional<RTIMultilingual> found = repository.findById(1L);
+
+        assertThat(found).isPresent();
+        assertThat(found.get().getLabel()).isEqualTo("Label1");
+
+        verify(repository, times(1)).findById(1L);
+    }
+
+    @Test
+    void testExistsById() {
+        when(repository.existsById(1L)).thenReturn(true);
+
+        boolean exists = repository.existsById(1L);
+
+        assertThat(exists).isTrue();
+
+        verify(repository, times(1)).existsById(1L);
+    }
+}
+------
+
+package com.excelImporter.domain;
+
+import org.junit.jupiter.api.Test;
+import static org.assertj.core.api.Assertions.assertThat;
+
+class RTIMultilingualTest {
+
+    @Test
+    void testEntitySettersAndGetters() {
+        RTIMultilingual entity = new RTIMultilingual();
+        entity.setId(1L);
+        entity.setReqformId(100L);
+        entity.setLabel("Label1");
+        entity.setLangId("EN");
+        entity.setHelp("Help text");
+
+        assertThat(entity.getId()).isEqualTo(1L);
+        assertThat(entity.getReqformId()).isEqualTo(100L);
+        assertThat(entity.getLabel()).isEqualTo("Label1");
+        assertThat(entity.getLangId()).isEqualTo("EN");
+        assertThat(entity.getHelp()).isEqualTo("Help text");
+    }
+}
