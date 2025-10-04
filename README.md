@@ -2,6 +2,53 @@
 
 
 
+
+
+
+
+
+@Slf4j
+@RestController
+@RequestMapping(RTIMultilingualController.BASE_PATH)
+
+public class RTIMultilingualController {
+
+    public static final String BASE_PATH = "api/v1/rti";
+
+    @Autowired
+    private RTIMultilingualService service;
+
+    @PostMapping("/upload")
+    @ApiOperation(
+            value = "Upload Excel File for RTI Multilingual Data",
+            nickname = "uploadRTIMultilingualExcel",
+            notes = "This API uploads an Excel file to create or update RTI Multilingual records in the database."
+    )
+    @ApiImplicitParams({
+            @ApiImplicitParam(name = "orgoid", value = "Organization ID", dataType = "string", paramType = "header", required = true),
+            @ApiImplicitParam(name = "associateoid", value = "Associate ID", dataType = "string", paramType = "header", required = true)
+    })
+    public ResponseEntity<Void> uploadExcel(
+            @RequestHeader("orgoid") String orgOid,
+            @RequestHeader("associateoid") String associateOid,
+            @RequestParam("file") MultipartFile file
+    ) {
+//        log.info("Received Excel upload request - OrgID: {}, AssociateID: {}, File: {}",
+//                orgOid, associateOid, file.getOriginalFilename());
+
+        try {
+            service.uploadExcel(file);
+//            log.info("File '{}' uploaded and processed successfully.", file.getOriginalFilename());
+            return ResponseEntity.ok().build(); // ✅ returns 200 OK
+        } catch (Exception e) {
+//            log.error("Error processing Excel file '{}': {}", file.getOriginalFilename(), e.getMessage(), e);
+            return ResponseEntity.internalServerError().build(); // ✅ returns 500
+        }
+    }
+}
+
+-----------------
+
 package com.excelImporter.controller;
 
 
