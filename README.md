@@ -3,6 +3,51 @@
 
 new changes 
 
+
+
+package com.excelImporter.controller;
+
+import com.excelImporter.service.RTIMultilingualService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+@Slf4j
+@RestController
+@RequiredArgsConstructor
+@RequestMapping("/api/v1/rti")
+public class RTIMultilingualController {
+
+    private final RTIMultilingualService rtiMultilingualService;
+
+    @PostMapping("/upload")
+    public ResponseEntity<String> uploadExcel(
+            @RequestParam("file") MultipartFile file,
+            @RequestHeader(value = "orgoid", required = false) String orgOid,
+            @RequestHeader(value = "associateoid", required = false) String associateOid) {
+
+        log.info("Received Excel upload request from org: {}, associate: {}", orgOid, associateOid);
+
+        if (file.isEmpty()) {
+            log.warn("Uploaded file is empty");
+            return ResponseEntity.badRequest().body("File is empty");
+        }
+
+        try {
+            rtiMultilingualService.uploadExcel(file);
+            return ResponseEntity.ok("Excel uploaded and processed successfully");
+        } catch (Exception e) {
+            log.error("Error while uploading Excel: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError()
+                    .body("Failed to process Excel file: " + e.getMessage());
+        }
+    }
+}
+
+---------
+
 package com.excelImporter.service;
 
 import com.excelImporter.entity.RTIMultilingual;
