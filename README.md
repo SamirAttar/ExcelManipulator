@@ -2,60 +2,6 @@
 
 
 
-package com.excelImporter.controller;
-
-
-import com.excelImporter.service.RTiReqFormFieldMultilingualService;
-import io.swagger.annotations.ApiImplicitParam;
-import io.swagger.annotations.ApiImplicitParams;
-import io.swagger.annotations.ApiOperation;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
-
-@Slf4j
-@RestController
-@RequestMapping(RTIMultilingualController.BASE_PATH)
-
-public class RTIMultilingualController {
-
-    public static final String BASE_PATH = "api/v1/rti";
-
-
-    @Autowired
-    private RTiReqFormFieldMultilingualService service;
-
-    @PostMapping("/upload")
-    @ApiOperation(
-            value = "Upload Excel File for RTI Multilingual Data",
-            nickname = "uploadRTIMultilingualExcel",
-            notes = "Creates new records if they do not exist and updates existing labels if they do."
-    )
-    @ApiImplicitParams({
-            @ApiImplicitParam(name = "orgoid", value = "Organization ID", dataType = "string", paramType = "header", required = true),
-            @ApiImplicitParam(name = "associateoid", value = "Associate ID", dataType = "string", paramType = "header", required = true)
-    })
-    public ResponseEntity<Void> uploadExcel(
-            @RequestHeader("orgoid") String orgOid,
-            @RequestHeader("associateoid") String associateOid,
-            @RequestParam("file") MultipartFile file
-    ) {
-        try {
-            service.uploadExcel(file);
-            return ResponseEntity.ok().build();
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .build();
-        }
-    }
-    
-}
-
-
--------
-
 package com.excelImporter.service;
 
 import com.excelImporter.dao.RTiReqFormFieldMultilingualRepository;
@@ -65,6 +11,8 @@ import jakarta.transaction.Transactional;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -86,18 +34,26 @@ public class RTiReqFormFieldMultilingualService {
     private SiteTranslator siteTranslator;
 
 
+    private static final Logger log = LoggerFactory.getLogger(RTiReqFormFieldMultilingualService.class);
+
     @Transactional
     public void uploadExcel(MultipartFile file) throws Exception {
+        log.info("Starting Excel upload: {}", file.getOriginalFilename());
+
         try (InputStream inputStream = file.getInputStream()) {
             Workbook workbook = WorkbookFactory.create(inputStream);
             Sheet sheet = workbook.getSheetAt(0);
 
             if (sheet.getPhysicalNumberOfRows() < 2) {
+                log.warn("Excel file has no data rows.");
                 throw new RuntimeException("Excel file has no data rows.");
             }
 
             Row headerRow = sheet.getRow(0);
-            if (headerRow == null) throw new RuntimeException("Excel file has no header row.");
+            if (headerRow == null) {
+                log.warn("Excel file has no header row.");
+                throw new RuntimeException("Excel file has no header row.");
+            }
 
             int idColumnIndex = -1;
             int labelColumnIndex = -1;
@@ -111,28 +67,49 @@ public class RTiReqFormFieldMultilingualService {
                 String header = cell.getStringCellValue().trim().toUpperCase();
 
                 switch (header) {
-                    case "ID" -> idColumnIndex = i;
-                    case "LABLE" -> labelColumnIndex = i; // spelled "LABLE" in your Excel
+                    case "ID" -> {
+                        idColumnIndex = i;
+                        log.info("Found ID column at index {}", i);
+                    }
+                    case "LABLE" -> {
+                        labelColumnIndex = i;
+                        log.info("Found LABLE column at index {}", i);
+                    }
                     default -> {
                         String languageID = siteTranslator.getLanguageIdFromName(header);
                         if (languageID != null && !languageID.isEmpty()) {
                             languageColumns.put(i, languageID);
+                            log.info("Mapped Excel header '{}' to languageID '{}'", header, languageID);
+                        } else {
+                            log.warn("Skipping unknown language column '{}'", header);
                         }
                     }
                 }
             }
 
-            if (idColumnIndex == -1) throw new RuntimeException("Missing ID column.");
-            if (languageColumns.isEmpty()) throw new RuntimeException("No editable language columns found.");
+            if (idColumnIndex == -1) {
+                log.error("Missing ID column in Excel");
+                throw new RuntimeException("Missing ID column.");
+            }
+            if (languageColumns.isEmpty()) {
+                log.error("No editable language columns found in Excel");
+                throw new RuntimeException("No editable language columns found.");
+            }
 
             // --- Iterate data rows ---
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
-                if (row == null) continue;
+                if (row == null) {
+                    log.info("Skipping empty row {}", i);
+                    continue;
+                }
 
                 // --- Read reqFormFieldID ---
                 Cell idCell = row.getCell(idColumnIndex);
-                if (idCell == null) continue;
+                if (idCell == null) {
+                    log.warn("Skipping row {}: ID cell is null", i);
+                    continue;
+                }
 
                 Long reqFormFieldID = null;
                 if (idCell.getCellType() == CellType.NUMERIC) {
@@ -142,7 +119,10 @@ public class RTiReqFormFieldMultilingualService {
                         reqFormFieldID = Long.parseLong(idCell.getStringCellValue().trim());
                     } catch (Exception ignored) {}
                 }
-                if (reqFormFieldID == null) continue;
+                if (reqFormFieldID == null) {
+                    log.warn("Skipping row {}: Invalid ID value", i);
+                    continue;
+                }
 
                 // --- Process all editable language columns ---
                 for (Map.Entry<Integer, String> entry : languageColumns.entrySet()) {
@@ -156,17 +136,18 @@ public class RTiReqFormFieldMultilingualService {
                     String label = langCell.getStringCellValue().trim();
                     if (label.isEmpty()) continue;
 
-                    // --- Create or update without lambda ---
                     Optional<RTiReqFormFieldMultilingual> existingOpt =
                             repository.findByReqFormFieldIDAndLanguageID(reqFormFieldID, languageID);
 
                     RTiReqFormFieldMultilingual entity;
                     if (existingOpt.isPresent()) {
                         entity = existingOpt.get();
+                        log.info("Updating label for reqFormFieldID={} and languageID={}", reqFormFieldID, languageID);
                     } else {
                         entity = new RTiReqFormFieldMultilingual();
                         entity.setReqFormFieldID(reqFormFieldID);
                         entity.setLanguageID(languageID);
+                        log.info("Creating new entity for reqFormFieldID={} and languageID={}", reqFormFieldID, languageID);
                     }
 
                     entity.setLabel(label); // update label
@@ -175,9 +156,11 @@ public class RTiReqFormFieldMultilingualService {
             }
 
             workbook.close();
+            log.info("Excel upload completed successfully: {}", file.getOriginalFilename());
         }
     }
 }
+
 
 -------
 
@@ -195,7 +178,7 @@ public interface RTiReqFormFieldMultilingualRepository extends JpaRepository<RTi
 
 
 
-
+////////
 
 
 
