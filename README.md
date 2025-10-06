@@ -1,11 +1,100 @@
 # ExcelManipulator
 
 
+new changes 
+
+package com.excelImporter.service;
+
+import com.excelImporter.entity.RTIMultilingual;
+import com.excelImporter.repository.RTIMultilingualRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.ss.usermodel.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.InputStream;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class RTIMultilingualService {
+
+    private final RTIMultilingualRepository repository;
+
+    public void uploadExcel(MultipartFile file) {
+        log.info("Starting Excel upload: {}", file.getOriginalFilename());
+
+        try (InputStream is = file.getInputStream(); Workbook workbook = WorkbookFactory.create(is)) {
+            Sheet sheet = workbook.getSheetAt(0);
+
+            // Skip header (start from 1)
+            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+                Row row = sheet.getRow(i);
+                if (row == null) continue;
+
+                Long reqformId = getLongValue(row.getCell(1));
+                String label = getStringValue(row.getCell(2));
+                String langId = getStringValue(row.getCell(3));
+                String help = getStringValue(row.getCell(4));
+
+                if (reqformId == null || langId.isEmpty()) {
+                    log.warn("Skipping invalid row {} - missing reqformId/langId", i);
+                    continue;
+                }
+
+                // ✅ Check if record exists (reqformId + langId)
+                repository.findByReqformIdAndLangId(reqformId, langId)
+                        .ifPresentOrElse(existing -> {
+                            // Update label only
+                            existing.setLabel(label);
+                            repository.save(existing);
+                            log.info("Updated existing record: reqformId={}, langId={}", reqformId, langId);
+                        }, () -> {
+                            // Insert new record
+                            RTIMultilingual newRecord = new RTIMultilingual();
+                            newRecord.setReqformId(reqformId);
+                            newRecord.setLabel(label);
+                            newRecord.setLangId(langId);
+                            newRecord.setHelp(help);
+                            repository.save(newRecord);
+                            log.info("Inserted new record: reqformId={}, langId={}", reqformId, langId);
+                        });
+            }
+
+            log.info("✅ Excel file processed successfully: {}", file.getOriginalFilename());
+
+        } catch (Exception e) {
+            log.error("❌ Error while processing Excel file: {}", file.getOriginalFilename(), e);
+            throw new RuntimeException("Failed to process Excel file", e);
+        }
+    }
+
+    // Helper methods to handle different Excel cell types safely
+    private String getStringValue(Cell cell) {
+        if (cell == null) return "";
+        cell.setCellType(CellType.STRING);
+        return cell.getStringCellValue().trim();
+    }
+
+    private Long getLongValue(Cell cell) {
+        if (cell == null) return null;
+        try {
+            if (cell.getCellType() == CellType.NUMERIC) {
+                return (long) cell.getNumericCellValue();
+            } else if (cell.getCellType() == CellType.STRING && !cell.getStringCellValue().trim().isEmpty()) {
+                return Long.parseLong(cell.getStringCellValue().trim());
+            }
+        } catch (Exception e) {
+            log.warn("Invalid numeric value in cell: {}", cell, e);
+        }
+        return null;
+    }
+}
 
 
 
-
-
+--------
 
 @Slf4j
 @RestController
