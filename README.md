@@ -1,6 +1,102 @@
 # ExcelManipulator
 
 
+package com.excelImporter.service;
+
+import com.adp.nas.tas.rm.translations.domain.RTiReqFormFieldMultilingual;
+import com.adp.nas.tas.rm.translations.repositories.RTiReqFormFieldMultilingualRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.ss.usermodel.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.InputStream;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class RTIMultilingualService {
+
+    private final RTiReqFormFieldMultilingualRepository repository;
+
+    public void uploadExcel(MultipartFile file) {
+        log.info("Starting Excel upload: {}", file.getOriginalFilename());
+
+        try (InputStream is = file.getInputStream();
+             Workbook workbook = WorkbookFactory.create(is)) {
+
+            Sheet sheet = workbook.getSheetAt(0);
+
+            // Skip header row
+            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+                Row row = sheet.getRow(i);
+                if (row == null) continue;
+
+                Long reqFormFieldId = getLongValue(row.getCell(1));
+                String label = getStringValue(row.getCell(2));
+                String languageId = getStringValue(row.getCell(3));
+                String help = getStringValue(row.getCell(4));
+
+                // Skip invalid rows
+                if (reqFormFieldId == null || languageId.isEmpty()) {
+                    log.warn("Skipping invalid row {} - missing reqFormFieldId or languageId", i);
+                    continue;
+                }
+
+                repository.findByReqFormFieldIdAndLanguageId(reqFormFieldId, languageId)
+                        .ifPresentOrElse(existing -> {
+                            // Update only if label and help are not empty
+                            if (!label.isEmpty() && !help.isEmpty()) {
+                                existing.setLabel(label);
+                                existing.setHelp(help);
+                                repository.save(existing);
+                                log.info("Updated existing record: reqFormFieldId={}, languageId={}", reqFormFieldId, languageId);
+                            } else {
+                                log.warn("Skipped update for row {} - empty label/help", i);
+                            }
+                        }, () -> {
+                            // Insert new record
+                            RTiReqFormFieldMultilingual newRecord = new RTiReqFormFieldMultilingual();
+                            newRecord.setReqFormFieldId(reqFormFieldId);
+                            newRecord.setLabel(label);
+                            newRecord.setLanguageId(languageId);
+                            newRecord.setHelp(help);
+                            repository.save(newRecord);
+                            log.info("Inserted new record: reqFormFieldId={}, languageId={}", reqFormFieldId, languageId);
+                        });
+            }
+
+            log.info("✅ Excel file processed successfully: {}", file.getOriginalFilename());
+
+        } catch (Exception e) {
+            log.error("❌ Error while processing Excel file: {}", file.getOriginalFilename(), e);
+            throw new RuntimeException("Failed to process Excel file", e);
+        }
+    }
+
+    // Helper methods to handle Excel cells safely
+    private String getStringValue(Cell cell) {
+        if (cell == null) return "";
+        cell.setCellType(CellType.STRING);
+        return cell.getStringCellValue().trim();
+    }
+
+    private Long getLongValue(Cell cell) {
+        if (cell == null) return null;
+        try {
+            if (cell.getCellType() == CellType.NUMERIC) {
+                return (long) cell.getNumericCellValue();
+            } else if (cell.getCellType() == CellType.STRING && !cell.getStringCellValue().trim().isEmpty()) {
+                return Long.parseLong(cell.getStringCellValue().trim());
+            }
+        } catch (Exception e) {
+            log.warn("Invalid numeric value in cell: {}", cell, e);
+        }
+        return null;
+    }
+}
+
 new changes 
 
 
