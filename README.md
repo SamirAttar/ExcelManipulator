@@ -1,5 +1,7 @@
 # ExcelManipulator
-
+public interface RTiReqFormFieldMultilingualRepository extends JpaRepository<RTiReqFormFieldMultilingual, Long> {
+    Optional<RTiReqFormFieldMultilingual> findByReqFormFieldIdAndLanguageId(Long reqFormFieldId, String languageId);
+}
 
 package com.excelImporter.service;
 
