@@ -2,6 +2,69 @@
 
 
 
+Controller
+
+package com.excelImporter.controller;
+
+
+import com.excelImporter.service.RTiReqFormFieldMultilingualService;
+import io.swagger.annotations.ApiImplicitParam;
+import io.swagger.annotations.ApiImplicitParams;
+import io.swagger.annotations.ApiOperation;
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+@Slf4j
+@RestController
+@RequestMapping(RTIMultilingualController.BASE_PATH)
+
+public class RTIMultilingualController {
+
+    public static final String BASE_PATH = "api/v1/rti";
+
+    private static final Logger log = LoggerFactory.getLogger(RTIMultilingualController.class);
+
+    @Autowired
+    private RTiReqFormFieldMultilingualService service;
+
+    @PostMapping("/upload")
+    @ApiOperation(
+            value = "Upload Excel File for RTI Multilingual Data",
+            nickname = "uploadRTIMultilingualExcel",
+            notes = "Creates new records if they do not exist and updates existing labels if they do."
+    )
+    @ApiImplicitParams({
+            @ApiImplicitParam(name = "orgoid", value = "Organization ID", dataType = "string", paramType = "header", required = true),
+            @ApiImplicitParam(name = "associateoid", value = "Associate ID", dataType = "string", paramType = "header", required = true)
+    })
+    public ResponseEntity<Void> uploadExcel(
+            @RequestHeader("orgoid") String orgOid,
+            @RequestHeader("associateoid") String associateOid,
+            @RequestParam("file") MultipartFile file
+    ) {
+        log.info("Received Excel upload request - OrgID: {}, AssociateID: {}, File: {}",
+                orgOid, associateOid, file.getOriginalFilename());
+
+        try {
+            service.uploadExcel(file);
+            log.info("File '{}' uploaded and processed successfully.", file.getOriginalFilename());
+            return ResponseEntity.ok().build(); // returns 200 OK
+        } catch (Exception e) {
+            log.error("Error processing Excel file '{}': {}", file.getOriginalFilename(), e.getMessage(), e);
+            return ResponseEntity.internalServerError().build(); // returns 500
+        }
+    }
+
+}
+
+
+
+--------------
 package com.excelImporter.service;
 
 import com.excelImporter.dao.RTiReqFormFieldMultilingualRepository;
